@@ -15,24 +15,45 @@ from sklearn.model_selection import train_test_split
 # ********************************************  TELCO   ***********************************************************
 
 
-def clean_telco(df):
-    ''''
-    This function will get customer_id, monthly_charges, tenure, and total_charges 
-    from the previously acquired telco df, for all customers with a 2-year contract.
-    drop any duplicate observations, 
-    conver total_charges to a float type.
-    return cleaned telco DataFrame
+#acquire data for the first time
+def get_new_zillow():
     '''
-    #getting only the customers who have 2 year contract using the condition df.contract_type_id == 3
-    telco_df = df[['customer_id', 'monthly_charges', 'tenure', 'total_charges']][df.contract_type_id == 3]
-    #drop duplicates
-    telco_df = telco_df.drop_duplicates()
-    # add a '0' only to the columns that have " "
-    telco_df[telco_df['total_charges']== ' '] = telco_df[telco_df['total_charges']== ' '].replace(' ','0')
-    # convert total_charges to float
-    telco_df['total_charges']= telco_df['total_charges'].astype('float')
+    This function reads in the zillow data from the Codeup db
+    and returns a pandas DataFrame with columns :
+     bedroomcnt, bathroomcnt, calculatedfinishedsquarefeet, taxvaluedollarcnt, yearbuilt, taxamount, fips 
+    '''
+    sql_query = '''
+    SELECT parcelid, bedroomcnt, bathroomcnt, calculatedfinishedsquarefeet,
+    taxvaluedollarcnt
+    FROM properties_2017
+    JOIN predictions_2017 as pred USING (parcelid)
+    WHERE pred.transactiondate >= '2017-05-01' AND pred.transactiondate <= '2017-08-31'
+    AND propertylandusetypeid > 259 AND propertylandusetypeid  < 266;
+    '''
+    return pd.read_sql(sql_query, get_connection('zillow'))
+
+#acquire data main function 
+def get_zillow():
+    '''
+    This function reads in telco_churn data from Codeup database, writes data to
+    a csv file if a local file does not exist, and returns a df.
+    '''
+    if os.path.isfile('zillow.csv'):
         
-    return telco_df
+        # If csv file exists, read in data from csv file.
+        df = pd.read_csv('zillow.csv', index_col=0)
+        
+    else:
+        
+        # Read fresh data from db into a DataFrame.
+        df = get_new_zillow()
+        
+        # Write DataFrame to a csv file.
+        df.to_csv('zillow.csv')
+        
+    return df
+
+
 
 
 
@@ -75,53 +96,6 @@ def split_Xy (train, validate, test, target):
     print(f'X_test -> {X_test.shape}                  y_test>{y_test.shape}') 
     return  X_train, y_train, X_validate, y_validate, X_test, y_test
 
-def wrangle_telco():
-    ''''
-    This function will acquire telco db using get_telco function. then it will use another
-    function named  clean_telco that create a new df only with  customer_id, monthly_charges, tenure, and total_charges 
-    from the previously acquired telco df, this new df will contain only customers with a 2-year contract.
-    drop any duplicate observations, 
-    conver total_charges to a float type.
-    return cleaned telco DataFrame
-    '''
-    df = acquire.get_telco()
-    telco_df = clean_telco(df)
-    return telco_df
-
-
-
-# ******************************************** ZILLOW ********************************************
-
-def clean_zillow (df):
-    '''
-    Takes in a df and drops duplicates,  nulls, all houses that do not have bedrooms and bathrooms,
-    houses that calculatedfinishedsquarefeet < 800, and bedroomcnt, yearbuilt, fips are changed to
-    int.
-    Return a clean df
-    '''
-    
-    # drop duplicates
-    df = df.drop_duplicates()
-    #drop nulls
-    df = df.dropna(how='any',axis=0)
-
-    #drop all houses with bath = 0 and bedromms = 0
-    #get the index to drop the rows
-    ind = list(df[(df.bedroomcnt == 0) & (df.bathroomcnt == 0)].index)
-    #drop
-    df.drop(ind, axis=0, inplace= True)
-
-
-    #drop all houses calculatedfinisheedsqf <800
-    #get the index to drop
-    lis =list(df[df['calculatedfinishedsquarefeet'] < 800].index)
-    #drop the rows
-    df.drop(lis, axis=0, inplace = True)
-
-    #bedrooms, yearbuilt and fips can be converted to int
-    df[['bedroomcnt', 'yearbuilt', 'fips']] = df[['bedroomcnt', 'yearbuilt', 'fips']].astype(int)
-    return df
-
 
 
 def wrangle_zillow():
@@ -139,25 +113,31 @@ def wrangle_zillow():
 
 
 
-# Function for acquiring and prepping my student_grades df.
-
-def wrangle_grades():
+def miss_dup_values(df):
     '''
-    Read student_grades csv file into a pandas DataFrame,
-    drop student_id column, replace whitespaces with NaN values,
-    drop any rows with Null values, convert all columns to int64,
-    return cleaned student grades DataFrame.
+    this function takes a dataframe as input and will output metrics for missing values and duplicated rows, 
+    and the percent of that column that has missing values and duplicated rows
     '''
-    # Acquire data from csv file.
-    grades = pd.read_csv('student_grades.csv')
-    
-    # Replace white space values with NaN values.
-    grades = grades.replace(r'^\s*$', np.nan, regex=True)
-    
-    # Drop all rows with NaN values.
-    df = grades.dropna()
-    
-    # Convert all columns to int64 data types.
-    df = df.astype('int')
-    
-    return df
+        # Total missing values
+    mis_val = df.isnull().sum()
+        # Percentage of missing values
+    mis_val_percent = 100 * df.isnull().sum() / len(df)
+        #total of duplicated
+    dup = df.duplicated().sum()  
+        # Percentage of missing values
+    dup_percent = 100 * dup / len(df)
+        # Make a table with the results
+    mis_val_table = pd.concat([mis_val, mis_val_percent], axis=1)
+        # Rename the columns
+    mis_val_table_ren_columns = mis_val_table.rename(columns = {0 : 'Missing Values', 1 : '% of Total Values'})
+        # Sort the table by percentage of missing descending
+    mis_val_table_ren_columns = mis_val_table_ren_columns[
+    mis_val_table_ren_columns.iloc[:,1] != 0].sort_values('% of Total Values', ascending=False).round(1)
+        # Print some summary information
+    print ("Your selected dataframe has " + str(df.shape[1]) + " columns.\n"      
+           "There are " + str(mis_val_table_ren_columns.shape[0]) +
+           " columns that have missing values.")
+    print( "  ")
+    print (f"** There are {dup} duplicate rows that represents {round(dup_percent, 2)}% of total Values**")
+        # Return the dataframe with missing information
+    return mis_val_table_ren_columns
